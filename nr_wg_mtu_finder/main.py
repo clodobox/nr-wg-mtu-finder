@@ -4,7 +4,7 @@ import sys
 import time
 from distutils.util import strtobool
 
-from pydantic import BaseModel, StrictInt, StrictStr, root_validator
+from pydantic import BaseModel, StrictStr, field_validator, model_validator
 from typing_extensions import Literal
 
 from .mtu_finder import MTUFinder
@@ -38,30 +38,27 @@ class ArgsModel(BaseModel):
     interface: StrictStr = "wg0"
     conf_file: StrictStr = "/etc/wireguard/wg0.conf"
 
-    @root_validator(pre=False)
-    def validate(cls, values):
-        """Generic validations."""
-        mtu_min, mtu_max, mtu_step = (
-            values.get("mtu_min", None),
-            values.get("mtu_max", None),
-            values.get("mtu_step", None),
-        )
+    @model_validator(mode="after")
+    def validate_mtu_range(self) -> "ArgsModel":
+        """Generic validations (ex-root_validator)."""
 
-        if not (1280 <= mtu_min <= 1500):
-            raise ValueError(f"mtu_min: {mtu_min} must be in range [1280, 1500].")
+        if not (1280 <= self.mtu_min <= 1500):
+            raise ValueError(f"mtu_min: {self.mtu_min} must be in range [1280, 1500].")
 
-        if not (1280 <= mtu_max <= 1500):
-            raise ValueError(f"mtu_max: {mtu_max} must be in range [1280, 1500].")
+        if not (1280 <= self.mtu_max <= 1500):
+            raise ValueError(f"mtu_max: {self.mtu_max} must be in range [1280, 1500].")
 
-        if not (mtu_min <= mtu_max):
+        if not (self.mtu_min <= self.mtu_max):
             raise ValueError(
-                f"mtu_min: {mtu_min} must be less than or equal to mtu_max: {mtu_max}"
+                f"mtu_min: {self.mtu_min} must be less than or equal to "
+                f"mtu_max: {self.mtu_max}"
             )
 
-        return values
+        return self
 
-    class Config:
-        orm_mode = True
+    model_config = {
+        "from_attributes": True,  # remplace orm_mode = True
+    }
 
 
 def setup_args():
@@ -135,6 +132,9 @@ def setup_args():
 
 def run():
     args = setup_args()
-    args = ArgsModel.from_orm(args)
 
-    MTUFinder(**args.dict())
+    # Pydantic v2 : from_attributes=True + model_validate remplace from_orm
+    args_model = ArgsModel.model_validate(args)
+
+    # Pydantic v2 : dict() -> model_dump()
+    MTUFinder(**args_model.model_dump())
